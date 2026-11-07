@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Avarixen Avatar Extractor</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #10131c;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        header {
+            padding: 20px;
+            background: #191e2b;
+            border-bottom: 1px solid #30394d;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        header p {
+            color: #aab4c8;
+            margin-bottom: 0;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: auto;
+            padding: 20px;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        input {
+            flex: 1;
+            min-width: 0;
+            padding: 13px;
+            border: 1px solid #39445c;
+            border-radius: 8px;
+            background: #191e2b;
+            color: white;
+            font-size: 15px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #4285f4;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            background: #4285f4;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+accountInfo {
+    display: none;
+    padding: 15px;
+    margin-bottom: 15px;
+    background: #191e2b;
+    border: 1px solid #30394d;
+    border-radius: 10px;
+    line-height: 1.8;
+}
+
+#viewer {
+    width: 100%;
+    height: 500px;
+    background: #202738;
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.status {
+    margin-top: 15px;
+    color: #aab4c8;
+    line-height: 1.5;
+}
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+@media (max-width: 600px) {
+    .search-box {
+        flex-direction: column;
+    }
+
+    .search-box button {
+        width: 100%;
+    }
+
+    #viewer {
+        height: 380px;
+    }
+}
+</style>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+    }
+}
+</script>
+</head>
+
+<body>
+
+<header>
+    <h1>Avarixen Avatar Extractor</h1>
+    <p>Roblox Avatar 3D Preview</p>
+</header>
+
+<main>
+
+    <div class="search-box">
+        <input
+            type="text"
+            id="usernameInput"
+            placeholder="Masukkan username Roblox..."
+            autocomplete="off"
+        >
+
+        <button id="searchButton">
+            Cari Avatar
+        </button>
+    </div>
+
+    <div id="accountInfo"></div>
+
+    <div id="viewer"></div>
+
+    <div class="status" id="status">
+        Menunggu model 3D...
+    </div>
+
+    <div class="controls">
+        <button id="reloadButton">
+            Muat Ulang Model
+        </button>
+
+        <button id="downloadZip">
+            Download Avatar (ZIP)
+        </button>
+    </div>
+
+</main>
+
+<script type="module">
+
+import * as THREE from "three";
+
+import JSZip from
+    "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
+
+import { OrbitControls } from
+    "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/controls/OrbitControls.js";
+
+import { MTLLoader } from
+    "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/MTLLoader.js";
+
+import { OBJLoader } from
+    "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/OBJLoader.js";
+
+
+const viewer = document.getElementById("viewer");
+const status = document.getElementById("status");
+
+const usernameInput =
+    document.getElementById("usernameInput");
+
+const searchButton =
+    document.getElementById("searchButton");
+
+const accountInfo =
+    document.getElementById("accountInfo");
+
+const downloadButton =
+    document.getElementById("downloadZip");
+
+const reloadButton =
+    document.getElementById("reloadButton");
+
+
+const BACKEND_URL = "http://localhost:3000";
+
+
+const scene = new THREE.Scene();
+
+scene.background = new THREE.Color(0x202738);
+
+
+const camera = new THREE.PerspectiveCamera(
+    45,
+    viewer.clientWidth / viewer.clientHeight,
+    0.1,
+    1000
+);
+
+camera.position.set(0, 0, 12);
+
+
+const renderer = new THREE.WebGLRenderer({
+    antialias: true
+});
+
+renderer.setSize(
+    viewer.clientWidth,
+    viewer.clientHeight
+);
+
+renderer.setPixelRatio(
+    Math.min(window.devicePixelRatio, 2)
+);
+
+viewer.appendChild(renderer.domElement);
+
+
+const controls = new OrbitControls(
+    camera,
+    renderer.domElement
+);
+
+controls.enableDamping = true;
+
+
+scene.add(
+    new THREE.AmbientLight(0xffffff, 2)
+);
+
+
+const light = new THREE.DirectionalLight(
+    0xffffff,
+    2
+);
+
+light.position.set(5, 10, 7);
+
+scene.add(light);
+
+
+let currentModel = null;
+let currentUserId = null;
+let currentDisplayName = null;
+
+
+// MEMUAT MODEL LOKAL ATAU AVATAR HASIL PENCARIAN
+
+function loadModel(userId = null) {
+
+    const assetPath = userId
+        ? `/assets/${encodeURIComponent(userId)}/`
+        : "/assets/";
+
+    status.textContent =
+        "Memuat material dan tekstur...";
+
+    const mtlLoader = new MTLLoader();
+
+    mtlLoader.setPath(assetPath);
+
+    mtlLoader.load(
+        "avatar.mtl",
+
+        materials => {
+
+            materials.preload();
+
+            const objLoader = new OBJLoader();
+
+            objLoader.setMaterials(materials);
+
+            objLoader.setPath(assetPath);
+
+            status.textContent =
+                "Memuat model 3D...";
+
+            objLoader.load(
+                "avatar.obj",
+
+                object => {
+
+                    if (currentModel) {
+                        scene.remove(currentModel);
+                    }
+
+                    currentModel = object;
+
+                    scene.add(object);
+
+                    const box = new THREE.Box3()
+                        .setFromObject(object);
+
+                    const center = box.getCenter(
+                        new THREE.Vector3()
+                    );
+
+                    const size = box.getSize(
+                        new THREE.Vector3()
+                    );
+
+                    object.position.sub(center);
+
+                    const maxSize = Math.max(
+                        size.x,
+                        size.y,
+                        size.z
+                    );
+
+                    camera.position.set(
+                        0,
+                        0,
+                        maxSize * 2.5
+                    );
+
+                    camera.lookAt(0, 0, 0);
+
+                    controls.target.set(0, 0, 0);
+
+                    controls.update();
+
+                    status.textContent =
+                        "Model 3D berhasil dimuat!";
+
+                },
+
+                undefined,
+
+                error => {
+
+                    console.error(error);
+
+                    status.textContent =
+                        "Gagal memuat model OBJ.";
+
+                }
+            );
+
+        },
+
+        undefined,
+
+        error => {
+
+            console.error(error);
+
+            status.textContent =
+                "Gagal memuat material MTL.";
+
+        }
+    );
+
+}
+
+
+// PENCARIAN USERNAME ROBLOX
+
+searchButton.addEventListener(
+    "click",
+    async () => {
+
+        const username = usernameInput.value.trim();
+
+        if (!username) {
+
+            status.textContent =
+                "Masukkan username Roblox terlebih dahulu.";
+
+            return;
+
+        }
+
+        searchButton.disabled = true;
+
+        searchButton.textContent = "Mencari...";
+
+        accountInfo.style.display = "none";
+
+        try {
+
+            status.textContent =
+                "Mencari akun Roblox...";
+
+            const userResponse = await fetch(
+                BACKEND_URL + "/api/roblox/user",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        username: username
+                    })
+                }
+            );
+
+            const userResult = await userResponse.json();
+
+            if (!userResponse.ok || !userResult.success) {
+                throw new Error(
+                    userResult.message ||
+                    "Akun Roblox tidak ditemukan."
+                );
+            }
+
+            const user = userResult.user;
+            currentDisplayName = user.displayName || user.username;
+
+            accountInfo.innerHTML = `
+                <strong>Informasi Akun</strong><br>
+                Username: ${escapeHTML(user.username)}<br>
+                Display Name: ${escapeHTML(user.displayName)}<br>
+                User ID: ${user.id}
+            `;
+
+            accountInfo.style.display = "block";
+
+
+            status.textContent =
+                "Mengambil metadata avatar...";
+
+
+            const avatarResponse = await fetch(
+                BACKEND_URL +
+                "/api/roblox/avatar/" +
+                encodeURIComponent(user.id)
+            );
+
+            const avatarResult = await avatarResponse.json();
+
+            if (!avatarResponse.ok || !avatarResult.success) {
+                throw new Error(
+                    avatarResult.message ||
+                    "Gagal mengambil metadata avatar."
+                );
+            }
+
+            status.textContent =
+                "Mengunduh aset avatar Roblox...";
+
+            const downloadResponse = await fetch(
+                BACKEND_URL +
+                "/api/roblox/download/" +
+                encodeURIComponent(user.id)
+            );
+
+            const downloadResult = await downloadResponse.json();
+
+            if (!downloadResponse.ok || !downloadResult.success) {
+                throw new Error(
+                    downloadResult.message ||
+                    "Gagal mengunduh aset avatar."
+                );
+            }
+
+            currentUserId = user.id;
+
+            status.textContent =
+                "Aset berhasil diunduh! Memuat preview 3D...";
+
+            loadModel(currentUserId);
+
+        } catch (error) {
+
+            console.error(error);
+
+            status.textContent =
+                "Terjadi kesalahan: " + error.message;
+
+        } finally {
+
+            searchButton.disabled = false;
+
+            searchButton.textContent = "Cari Avatar";
+
+        }
+
+    }
+);
+
+
+// MENCEGAH HTML DARI USERNAME
+
+function escapeHTML(value) {
+
+    return String(value).replace(
+        /[&<>"']/g,
+        character => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#039;"
+        })[character]
+    );
+
+}
+
+
+// TOMBOL MUAT ULANG
+
+reloadButton.addEventListener(
+    "click",
+    () => {
+
+        loadModel();
+
+    }
+);
+
+
+// DOWNLOAD ZIP
+
+downloadButton.addEventListener(
+    "click",
+    async () => {
+
+        downloadButton.disabled = true;
+
+        downloadButton.textContent =
+            "Membuat ZIP...";
+
+        try {
+
+            if (!currentUserId) {
+                throw new Error(
+                    "Cari avatar Roblox terlebih dahulu."
+                );
+            }
+
+            const assetPath =
+                `/assets/${encodeURIComponent(currentUserId)}/`;
+
+            const safeName = String(currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
+            const baseName = safeName.toLowerCase();
+
+            const files = [
+                "avatar.obj",
+                "avatar.mtl"
+            ];
+
+            let textureIndex = 1;
+
+            while (true) {
+                const filename = `texture${textureIndex}.png`;
+
+                const check = await fetch(assetPath + filename, {
+                    method: "HEAD"
+                });
+
+                if (!check.ok) break;
+
+                files.push(filename);
+                textureIndex++;
+            }
+
+            const zip = new JSZip();
+
+            for (const file of files) {
+
+                const response = await fetch(
+                    assetPath + file
+                );
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        "Gagal mengambil " + file
+                    );
+
+                }
+
+                let content = await response.blob();
+
+                if (file === "avatar.obj") {
+                    let objText = await content.text();
+                    objText = objText.replace(/^mtllib\s+.*$/m, `mtllib ${baseName}.mtl`);
+                    content = new Blob([objText], { type: "text/plain" });
+                }
+
+                if (file === "avatar.mtl") {
+                    content = new Blob(
+                        [await content.text()],
+                        { type: "text/plain" }
+                    );
+                }
+
+                const zipFileName =
+                    file === "avatar.obj" ? `${baseName}.obj` :
+                    file === "avatar.mtl" ? `${baseName}.mtl` :
+                    file;
+
+                zip.file(
+                    `${safeName}/${zipFileName}`,
+                    content
+                );
+
+            }
+
+            const blob = await zip.generateAsync({
+                type: "blob"
+            });
+
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement("a");
+
+            link.href = url;
+
+            const zipName = String(currentDisplayName || "Avarixen-Avatar").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen-Avatar";
+            link.download = `${safeName}.zip`;
+
+            document.body.appendChild(link);
+
+            link.click();
+
+            link.remove();
+
+            setTimeout(
+                () => URL.revokeObjectURL(url),
+                1000
+            );
+
+        } catch (error) {
+
+            alert(
+                "Gagal membuat ZIP: " + error.message
+            );
+
+        } finally {
+
+            downloadButton.disabled = false;
+
+            downloadButton.textContent =
+                "Download Avatar (ZIP)";
+
+        }
+
+    }
+);
+
+
+// RESPONSIVE VIEWER
+
+window.addEventListener(
+    "resize",
+    () => {
+
+        camera.aspect =
+            viewer.clientWidth / viewer.clientHeight;
+
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(
+            viewer.clientWidth,
+            viewer.clientHeight
+        );
+
+    }
+);
+
+
+// ANIMASI 3D
+
+function animate() {
+
+    requestAnimationFrame(animate);
+
+    controls.update();
+
+    renderer.render(scene, camera);
+
+}
+
+animate();
+
+
+// MULAI
+
+loadModel();
+
+</script>
+
+</body>
+</html>

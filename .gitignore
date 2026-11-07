@@ -1,0 +1,21 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Downloaded avatar assets
+downloads/*
+
+# Logs
+*.log
+backend/downloads/*
+
+# Backup files
+*.backup
+
+# Test assets
+frontend/test-avatar*
+frontend/test-texture*
